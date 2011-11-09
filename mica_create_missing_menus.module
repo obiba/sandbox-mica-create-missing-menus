@@ -1,0 +1,107 @@
+<?php
+
+variable_set('content_types_to_fix',
+array('study', 'project', 'dataschema', 'ds_module', 'ds_theme', 'ds_domain', 'ds_variable'));
+
+/**
+ * Implements hook_menu().
+ */
+function mica_create_missing_menus_menu() {
+	$items['admin/config/development/mica'] = array(
+    'title' => 'Mica',
+    'description' => 'Dev tools for Mica',
+  	'page callback' => 'drupal_get_form',
+    'page arguments' => array('mica_create_missing_settings'),
+    'access arguments' => array('administer site configuration'),
+	);
+	return $items;
+}
+
+
+function mica_create_missing_settings() {
+	$form['description'] = array(
+  	'#markup' => '<p>' . 
+	t('Generates missing menus for content of type: '. implode(', ', variable_get('content_types_to_fix'))  .'.<br />Menu configuration must be defined for content type.')
+	. '</p>',
+	);
+	$form['run'] = array(
+    '#type' => 'submit',
+    '#value' => t('Generate menus'),
+    '#submit' => array('create_menus'),
+	);
+	return $form;
+}
+
+
+function create_menus($form, &$form_state) {
+	foreach (variable_get('content_types_to_fix') as $type) {
+		_create_menu($type);
+	}
+}
+
+function _create_menu($type) {
+
+//  	debug('create menus for '. $type);
+
+	$menu_options = variable_get('menu_options_' . $type);
+	$menu_parent = variable_get('menu_parent_' . $type);
+//  	debug($menu_options, 'menu_options');
+//  	debug($menu_parent, 'menu_parent');
+
+	if (empty($menu_options) || empty($menu_parent)) {
+		drupal_set_message('Skip menu generation for '. $type .': menu is not configured for this content type.',
+    	'warning');
+		return;
+	}
+
+	$parent_menu_id = NULL;
+	
+	$split = explode(":", $menu_parent);
+	if (!empty($split[1])) {
+		$mlid = $split[1];
+		// check that this parent menu exists
+		$existing_parent_menu = db_query("SELECT * FROM {menu_links} WHERE mlid = :mlid", array(':mlid' => $mlid))
+		->fetchObject();
+//  		debug($existing_parent_menu, 'existing_parent_menu');
+	  if (!empty($existing_parent_menu) && $existing_parent_menu->mlid === $mlid) {
+			$parent_menu_id = $mlid;		  	
+	  }
+	}
+	
+	if(empty($parent_menu_id)) {
+		drupal_set_message('Skip menu generation for '. $type .': parent menu does not exist.', 'warning');
+		return;
+	}
+
+	$query = new EntityFieldQuery();
+	$result = $query
+	->entityCondition('entity_type', 'node')
+	->propertyCondition('type', $type)
+	->execute();
+
+	if(!empty($result)) {
+		$nodes = entity_load('node', array_keys($result['node']));
+		$nb_menu = 0;
+		foreach ($nodes as $node) {
+			$existing_menu = db_query("SELECT * FROM {menu_links} WHERE menu_name = :menu_name and link_path = :link_path",
+			array(':menu_name' => $menu_options[0], 'link_path' => 'node/' . $node->nid))
+			->fetchObject();
+			if(!empty($existing_menu)) {
+				drupal_set_message('Skip menu generation for '. $type .'/'. $node->nid .': menu already exists.', 'warning');
+			} else {
+				$menu = array();
+				$menu['hidden'] = 1;
+				$menu['expanded'] = 0;
+				$menu['menu_name'] = $menu_options[0];
+				$menu['link_title'] = $node->title;
+				$menu['link_path'] = 'node/' . $node->nid;
+				$menu['plid'] = $parent_menu_id;
+				menu_link_save($menu);
+				$nb_menu++;
+			}
+		}
+		menu_cache_clear($menu_options[0]);
+		drupal_set_message('Generated '. $nb_menu . ' menus for '. $type, 'status');
+	}
+}
+

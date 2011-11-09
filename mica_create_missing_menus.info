@@ -1,0 +1,9 @@
+name = Mica - Creates missing menus
+description = Creates missing menus for dataschema content, projects and studies.
+core = 7.x
+package = "OBiBa"
+
+dependencies[] = menu
+dependencies[] = mica_dataschemas
+dependencies[] = mica_studies
+dependencies[] = mica_projects
